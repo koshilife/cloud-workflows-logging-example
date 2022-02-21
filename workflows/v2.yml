@@ -1,0 +1,55 @@
+main:
+    params: [input]
+    steps:
+    - set_trace_id:
+        assign:
+            - execution_id: ${sys.get_env("GOOGLE_CLOUD_WORKFLOW_EXECUTION_ID")}
+            - api_url_function: "https://asia-northeast1-xxx.cloudfunctions.net/logging-example-v2" # TODO set your environment
+            - api_url_cloudrun: "https://logging-example-v2-cxv3zh25mq-an.a.run.app" # TODO set your environment
+    - call_function:
+        call: http.post
+        args:
+            url: ${api_url_function}
+            body:
+                workflow_execution_id: ${execution_id}
+            auth:
+                type: OIDC
+        result: result_function
+    - call_cloudrun:
+        call: http.post
+        args:
+            url: ${api_url_cloudrun}
+            body:
+                workflow_execution_id: ${execution_id}
+            auth:
+                type: OIDC
+        result: result_cloudrun
+    - set_result:
+        assign:
+            - result_map:
+                message: ${execution_id}
+                function_execution_id: ${result_function.headers["Function-Execution-Id"]}
+                function_trace_id: ${text.split(result_function.headers["X-Cloud-Trace-Context"], ";o=")[0]}
+                cloudrun_trace_id: ${text.split(result_cloudrun.headers["X-Cloud-Trace-Context"], ";o=")[0]}
+    - log_result:
+        call: log
+        args:
+            message: ${execution_id}
+    - return_output:
+        return: ${result_map}
+
+log:
+    params: [message]
+    steps:
+    - set_log_data:
+        assign:
+            - execution_id_map: {}
+            - execution_id_map["workflows.googleapis.com/execution_id"]: ${sys.get_env("GOOGLE_CLOUD_WORKFLOW_EXECUTION_ID")}
+            - data: {}
+            - data["message"]: ${message}
+            - data["logging.googleapis.com/labels"]: ${execution_id_map}
+    - call_sys_log:
+        call: sys.log
+        args:
+            json: ${data}
+
